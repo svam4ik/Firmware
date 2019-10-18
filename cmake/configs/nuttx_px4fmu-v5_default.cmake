@@ -7,7 +7,7 @@ set(config_module_list
 #
 # PX4 Simulink App Module
 #
-modules/px4_simulink_app
+#modules/px4_simulink_app
 #
 # Board support modules
 #
@@ -158,4 +158,10 @@ modules/dataman
 
 # Hardware test
 #examples/hwtest
+
+#
+# RTR Modules
+#
+modules/trial_pub
+modules/trial_sub
 )

@@ -31,17 +31,16 @@
  *
  ****************************************************************************/
 
-#include "module.h"
+#include "trial_pub.h"
 
 #include <px4_getopt.h>
 #include <px4_log.h>
 #include <px4_posix.h>
 
+#include <uORB/topics/trial_topic.h>
 #include <uORB/topics/parameter_update.h>
-#include <uORB/topics/sensor_combined.h>
 
-
-int Module::print_usage(const char *reason)
+int TrialPub::print_usage(const char *reason)
 {
 	if (reason) {
 		PX4_WARN("%s\n", reason);
@@ -52,27 +51,26 @@ int Module::print_usage(const char *reason)
 ### Description
 Section that describes the provided module functionality.
 
-This is a template for a module running as a task in the background with start/stop/status functionality.
+This is an attempt to develop own publishing task.
 
 ### Implementation
 Section describing the high-level implementation of this module.
 
 ### Examples
 CLI usage example:
-$ module start -f -p 42
+$ module start -s 0 -l 1000
 
 )DESCR_STR");
 
-	PRINT_MODULE_USAGE_NAME("module", "template");
+	PRINT_MODULE_USAGE_NAME("trial_pub", "modules");
 	PRINT_MODULE_USAGE_COMMAND("start");
-	PRINT_MODULE_USAGE_PARAM_FLAG('f', "Optional example flag", true);
-	PRINT_MODULE_USAGE_PARAM_INT('p', 0, 0, 1000, "Optional example parameter", true);
+	PRINT_MODULE_USAGE_PARAM_INT('s', 0, 0, 10000, "Start counter from s", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
 }
 
-int Module::print_status()
+int TrialPub::print_status()
 {
 	PX4_INFO("Running");
 	// TODO: print additional runtime information about the state of the module
@@ -80,7 +78,7 @@ int Module::print_status()
 	return 0;
 }
 
-int Module::custom_command(int argc, char *argv[])
+int TrialPub::custom_command(int argc, char *argv[])
 {
 	/*
 	if (!is_running()) {
@@ -99,9 +97,9 @@ int Module::custom_command(int argc, char *argv[])
 }
 
 
-int Module::task_spawn(int argc, char *argv[])
+int TrialPub::task_spawn(int argc, char *argv[])
 {
-	_task_id = px4_task_spawn_cmd("module",
+	_task_id = px4_task_spawn_cmd("trial_pub",
 				      SCHED_DEFAULT,
 				      SCHED_PRIORITY_DEFAULT,
 				      1024,
@@ -116,10 +114,10 @@ int Module::task_spawn(int argc, char *argv[])
 	return 0;
 }
 
-Module *Module::instantiate(int argc, char *argv[])
+TrialPub *TrialPub::instantiate(int argc, char *argv[])
 {
-	int example_param = 0;
-	bool example_flag = false;
+	int start_param = 0;
+	int last_param = 1000;
 	bool error_flag = false;
 
 	int myoptind = 1;
@@ -127,14 +125,15 @@ Module *Module::instantiate(int argc, char *argv[])
 	const char *myoptarg = nullptr;
 
 	// parse CLI arguments
-	while ((ch = px4_getopt(argc, argv, "p:f", &myoptind, &myoptarg)) != EOF) {
+	while ((ch = px4_getopt(argc, argv, "s:l:", &myoptind, &myoptarg)) != EOF) {
 		switch (ch) {
-		case 'p':
-			example_param = (int)strtol(myoptarg, nullptr, 10);
+		case 's':
+			PX4_INFO("changing start value to %s", myoptarg);
+			start_param = (int)atoi(myoptarg);
 			break;
-
-		case 'f':
-			example_flag = true;
+		case 'l':
+			PX4_INFO("changing last value to %s", myoptarg);
+			last_param = (int)atoi(myoptarg);
 			break;
 
 		case '?':
@@ -152,7 +151,7 @@ Module *Module::instantiate(int argc, char *argv[])
 		return nullptr;
 	}
 
-	Module *instance = new Module(example_param);
+	TrialPub *instance = new TrialPub(start_param, last_param);
 
 	if (instance == nullptr) {
 		PX4_ERR("alloc failed");
@@ -161,19 +160,23 @@ Module *Module::instantiate(int argc, char *argv[])
 	return instance;
 }
 
-Module::Module(int example_param, bool example_flag)
-	: ModuleParams(nullptr)
+TrialPub::TrialPub(int start_param = 0, int last_param = 1000)
+	: ModuleParams(nullptr),
+	  _counter(start_param),
+	  _start(start_param),
+	  _last(last_param)
 {
+	PX4_INFO("_start = %d", _start);
+	PX4_INFO("_last = %d", _last);
 }
 
-void Module::run()
+void TrialPub::run()
 {
 	// Example: run the loop synchronized to the sensor_combined topic publication
-	int sensor_combined_sub = orb_subscribe(ORB_ID(sensor_combined));
-
-	px4_pollfd_struct_t fds[1];
-	fds[0].fd = sensor_combined_sub;
-	fds[0].events = POLLIN;
+	orb_id_t trial_id = ORB_ID(trial_topic);
+	struct trial_topic_s trial;
+	trial.value = _counter;
+	orb_advert_t trial_pub = orb_advertise(trial_id, &trial);
 
 	// initialize parameters
 	int parameter_update_sub = orb_subscribe(ORB_ID(parameter_update));
@@ -181,35 +184,20 @@ void Module::run()
 
 	while (!should_exit()) {
 
-		// wait for up to 1000ms for data
-		int pret = px4_poll(fds, (sizeof(fds) / sizeof(fds[0])), 1000);
-
-		if (pret == 0) {
-			// Timeout: let the loop run anyway, don't do `continue` here
-
-		} else if (pret < 0) {
-			// this is undesirable but not much we can do
-			PX4_ERR("poll error %d, %d", pret, errno);
-			usleep(50000);
-			continue;
-
-		} else if (fds[0].revents & POLLIN) {
-
-			struct sensor_combined_s sensor_combined;
-			orb_copy(ORB_ID(sensor_combined), sensor_combined_sub, &sensor_combined);
-			// TODO: do something with the data...
-
+		if (++_counter > _last) {
+			_counter = _start;
 		}
-
-
+		trial.value = _counter;
+		orb_publish(trial_id, trial_pub, &trial);
 		parameters_update(parameter_update_sub);
+		usleep(50000);
 	}
 
-	orb_unsubscribe(sensor_combined_sub);
 	orb_unsubscribe(parameter_update_sub);
+	orb_unadvertise(trial_pub);
 }
 
-void Module::parameters_update(int parameter_update_sub, bool force)
+void TrialPub::parameters_update(int parameter_update_sub, bool force)
 {
 	bool updated;
 	struct parameter_update_s param_upd;
@@ -220,13 +208,13 @@ void Module::parameters_update(int parameter_update_sub, bool force)
 		orb_copy(ORB_ID(parameter_update), parameter_update_sub, &param_upd);
 	}
 
-	if (force || updated) {
-		updateParams();
-	}
+//	if (force || updated) {
+//		updateParams();
+//	}
 }
 
 
-int module_main(int argc, char *argv[])
+int trial_pub_main(int argc, char *argv[])
 {
-	return Module::main(argc, argv);
+	return TrialPub::main(argc, argv);
 }

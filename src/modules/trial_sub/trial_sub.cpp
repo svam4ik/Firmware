@@ -31,17 +31,16 @@
  *
  ****************************************************************************/
 
-#include "module.h"
+#include "trial_sub.h"
 
 #include <px4_getopt.h>
 #include <px4_log.h>
 #include <px4_posix.h>
 
-#include <uORB/topics/parameter_update.h>
-#include <uORB/topics/sensor_combined.h>
+#include <uORB/topics/trial_topic.h>
 
 
-int Module::print_usage(const char *reason)
+int TrialSub::print_usage(const char *reason)
 {
 	if (reason) {
 		PX4_WARN("%s\n", reason);
@@ -52,27 +51,25 @@ int Module::print_usage(const char *reason)
 ### Description
 Section that describes the provided module functionality.
 
-This is a template for a module running as a task in the background with start/stop/status functionality.
+This is an attempt to write a subscriber as a task in the background with start/stop/status functionality.
 
 ### Implementation
 Section describing the high-level implementation of this module.
 
 ### Examples
 CLI usage example:
-$ module start -f -p 42
+$ trial_sub start
 
 )DESCR_STR");
 
-	PRINT_MODULE_USAGE_NAME("module", "template");
+	PRINT_MODULE_USAGE_NAME("trial_sub", "module");
 	PRINT_MODULE_USAGE_COMMAND("start");
-	PRINT_MODULE_USAGE_PARAM_FLAG('f', "Optional example flag", true);
-	PRINT_MODULE_USAGE_PARAM_INT('p', 0, 0, 1000, "Optional example parameter", true);
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;
 }
 
-int Module::print_status()
+int TrialSub::print_status()
 {
 	PX4_INFO("Running");
 	// TODO: print additional runtime information about the state of the module
@@ -80,7 +77,7 @@ int Module::print_status()
 	return 0;
 }
 
-int Module::custom_command(int argc, char *argv[])
+int TrialSub::custom_command(int argc, char *argv[])
 {
 	/*
 	if (!is_running()) {
@@ -99,7 +96,7 @@ int Module::custom_command(int argc, char *argv[])
 }
 
 
-int Module::task_spawn(int argc, char *argv[])
+int TrialSub::task_spawn(int argc, char *argv[])
 {
 	_task_id = px4_task_spawn_cmd("module",
 				      SCHED_DEFAULT,
@@ -116,10 +113,8 @@ int Module::task_spawn(int argc, char *argv[])
 	return 0;
 }
 
-Module *Module::instantiate(int argc, char *argv[])
+TrialSub *TrialSub::instantiate(int argc, char *argv[])
 {
-	int example_param = 0;
-	bool example_flag = false;
 	bool error_flag = false;
 
 	int myoptind = 1;
@@ -127,16 +122,8 @@ Module *Module::instantiate(int argc, char *argv[])
 	const char *myoptarg = nullptr;
 
 	// parse CLI arguments
-	while ((ch = px4_getopt(argc, argv, "p:f", &myoptind, &myoptarg)) != EOF) {
+	while ((ch = px4_getopt(argc, argv,"", &myoptind, &myoptarg)) != EOF) {
 		switch (ch) {
-		case 'p':
-			example_param = (int)strtol(myoptarg, nullptr, 10);
-			break;
-
-		case 'f':
-			example_flag = true;
-			break;
-
 		case '?':
 			error_flag = true;
 			break;
@@ -152,7 +139,7 @@ Module *Module::instantiate(int argc, char *argv[])
 		return nullptr;
 	}
 
-	Module *instance = new Module(example_param);
+	TrialSub *instance = new TrialSub();
 
 	if (instance == nullptr) {
 		PX4_ERR("alloc failed");
@@ -161,23 +148,18 @@ Module *Module::instantiate(int argc, char *argv[])
 	return instance;
 }
 
-Module::Module(int example_param, bool example_flag)
-	: ModuleParams(nullptr)
+TrialSub::TrialSub()
 {
 }
 
-void Module::run()
+void TrialSub::run()
 {
 	// Example: run the loop synchronized to the sensor_combined topic publication
-	int sensor_combined_sub = orb_subscribe(ORB_ID(sensor_combined));
+	int trial_topic_sub = orb_subscribe(ORB_ID(trial_topic));
 
 	px4_pollfd_struct_t fds[1];
-	fds[0].fd = sensor_combined_sub;
+	fds[0].fd = trial_topic_sub;
 	fds[0].events = POLLIN;
-
-	// initialize parameters
-	int parameter_update_sub = orb_subscribe(ORB_ID(parameter_update));
-	parameters_update(parameter_update_sub, true);
 
 	while (!should_exit()) {
 
@@ -195,38 +177,19 @@ void Module::run()
 
 		} else if (fds[0].revents & POLLIN) {
 
-			struct sensor_combined_s sensor_combined;
-			orb_copy(ORB_ID(sensor_combined), sensor_combined_sub, &sensor_combined);
+			struct trial_topic_s trial;
+			orb_copy(ORB_ID(trial_topic), trial_topic_sub, &trial);
+			PX4_INFO("the value is %d", trial.value );
 			// TODO: do something with the data...
 
 		}
 
-
-		parameters_update(parameter_update_sub);
 	}
 
-	orb_unsubscribe(sensor_combined_sub);
-	orb_unsubscribe(parameter_update_sub);
+	orb_unsubscribe(trial_topic_sub);
 }
 
-void Module::parameters_update(int parameter_update_sub, bool force)
+int trial_sub_main(int argc, char *argv[])
 {
-	bool updated;
-	struct parameter_update_s param_upd;
-
-	orb_check(parameter_update_sub, &updated);
-
-	if (updated) {
-		orb_copy(ORB_ID(parameter_update), parameter_update_sub, &param_upd);
-	}
-
-	if (force || updated) {
-		updateParams();
-	}
-}
-
-
-int module_main(int argc, char *argv[])
-{
-	return Module::main(argc, argv);
+	return TrialSub::main(argc, argv);
 }
