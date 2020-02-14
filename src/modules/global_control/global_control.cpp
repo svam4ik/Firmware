@@ -1,0 +1,9 @@
+#include <math.h>
+#include <lib/mathlib/mathlib.h>
+#include <global_params.h>
+#include "LowLevel.h"
+#include "HighLevel.h"
+#include <uORB/uORB.h>
+#include <drivers/drv_range_finder.h>
+#include <rc_work.h>
+#include <uORB/topics/vehicle_attitude.h>
